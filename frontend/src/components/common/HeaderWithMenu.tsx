@@ -24,6 +24,8 @@ interface HeaderWithMenuProps {
   title: string;
   subtitle?: string;
   onNavigate: (screen: ScreenType) => void;
+  isAuthenticated?: boolean;
+  onLogout?: () => void;
 }
 
 const menuItems = [
@@ -32,10 +34,9 @@ const menuItems = [
   { id: 3, title: 'Milk' as ScreenType, icon: '🥛' },
   { id: 4, title: 'Chara' as ScreenType, icon: '🌾' },
   { id: 5, title: 'Profit/Loss' as ScreenType, icon: '💰' },
-  { id: 6, title: 'Login/Signup' as ScreenType, icon: '👤' },
 ];
 
-export default function HeaderWithMenu({ title, subtitle, onNavigate }: HeaderWithMenuProps) {
+export default function HeaderWithMenu({ title, subtitle, onNavigate, isAuthenticated = false, onLogout }: HeaderWithMenuProps) {
   const [showDrawer, setShowDrawer] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width)).current;
 
@@ -126,6 +127,34 @@ export default function HeaderWithMenu({ title, subtitle, onNavigate }: HeaderWi
                   <Text style={styles.menuItemText}>{item.title}</Text>
                 </TouchableOpacity>
               ))}
+              {/* Show Logout if authenticated, otherwise show Login/Signup */}
+              {isAuthenticated ? (
+                <TouchableOpacity
+                  style={[styles.menuItem, styles.logoutItem]}
+                  onPress={() => {
+                    closeDrawer();
+                    if (onLogout) {
+                      onLogout();
+                    }
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.menuItemIcon}>🚪</Text>
+                  <Text style={[styles.menuItemText, styles.logoutText]}>Logout</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    closeDrawer();
+                    onNavigate('Login/Signup');
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.menuItemIcon}>👤</Text>
+                  <Text style={styles.menuItemText}>Login/Signup</Text>
+                </TouchableOpacity>
+              )}
             </ScrollView>
           </Animated.View>
         </TouchableOpacity>
@@ -235,6 +264,15 @@ const styles = StyleSheet.create({
     color: '#333',
     marginLeft: 15,
     fontWeight: '500',
+  },
+  logoutItem: {
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    marginTop: 10,
+  },
+  logoutText: {
+    color: '#FF5252',
+    fontWeight: '600',
   },
 });
 

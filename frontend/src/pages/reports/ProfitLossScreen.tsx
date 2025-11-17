@@ -12,6 +12,7 @@ type ScreenType =
 
 interface ProfitLossScreenProps {
   onNavigate: (screen: ScreenType) => void;
+  onLogout?: () => void;
 }
 
 /**
@@ -19,13 +20,15 @@ interface ProfitLossScreenProps {
  * View profit and loss reports
  * Calculate and display financial summaries
  */
-export default function ProfitLossScreen({ onNavigate }: ProfitLossScreenProps) {
+export default function ProfitLossScreen({ onNavigate, onLogout }: ProfitLossScreenProps) {
   return (
     <View style={styles.container}>
       <HeaderWithMenu
         title="Dairy Farm Management"
         subtitle="Profit/Loss"
         onNavigate={onNavigate}
+        isAuthenticated={true}
+        onLogout={onLogout}
       />
       <ScrollView style={styles.content}>
         <Text style={styles.text}>Profit/Loss Screen</Text>

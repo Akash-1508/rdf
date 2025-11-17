@@ -30,21 +30,31 @@ export interface AnimalMedia {
 }
 
 export interface AnimalTransaction {
-  id: string;
-  animalId: string;
+  _id?: string;
+  id?: string; // For backward compatibility
+  animalId?: string; // Optional - for standalone transactions (animal name/ID)
+  animalName?: string; // Animal name
+  animalType?: string; // cow, buffalo, goat, sheep, etc.
+  breed?: string; // Animal breed
+  gender?: string; // male, female
   type: 'sale' | 'purchase';
   date: Date;
   price: number;
   buyer?: string;
+  buyerPhone?: string;
   seller?: string;
+  sellerPhone?: string;
   notes?: string;
+  location?: string;
+  temperament?: string;
+  description?: string;
   images?: AnimalMedia[];
   videos?: AnimalMedia[];
 }
 
 // Milk Types
 export interface MilkTransaction {
-  id: string;
+  _id: string;
   type: 'sale' | 'purchase';
   date: Date;
   quantity: number; // in liters

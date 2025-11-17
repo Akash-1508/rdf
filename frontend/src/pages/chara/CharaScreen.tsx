@@ -25,6 +25,7 @@ type ScreenType =
 
 interface CharaScreenProps {
   onNavigate: (screen: ScreenType) => void;
+  onLogout?: () => void;
 }
 
 type ViewType = 'purchase' | 'consumption';
@@ -33,7 +34,7 @@ type ViewType = 'purchase' | 'consumption';
  * Unified Chara Screen
  * Manage both chara (fodder) purchases and daily consumption
  */
-export default function CharaScreen({ onNavigate }: CharaScreenProps) {
+export default function CharaScreen({ onNavigate, onLogout }: CharaScreenProps) {
   const [viewType, setViewType] = useState<ViewType>('purchase');
   const [purchases, setPurchases] = useState<CharaPurchase[]>([]);
   const [consumptions, setConsumptions] = useState<DailyCharaConsumption[]>([]);
@@ -157,6 +158,8 @@ export default function CharaScreen({ onNavigate }: CharaScreenProps) {
         title="Dairy Farm Management"
         subtitle="Chara (Fodder)"
         onNavigate={onNavigate}
+        isAuthenticated={true}
+        onLogout={onLogout}
       />
       <ScrollView style={styles.content}>
         {/* View Type Toggle */}

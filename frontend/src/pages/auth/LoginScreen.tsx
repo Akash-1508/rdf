@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
-import HeaderWithMenu from '../../components/common/HeaderWithMenu';
 import Input from '../../components/common/Input';
 import Button from '../../components/common/Button';
 import { authService } from '../../services/auth/authService';
@@ -11,30 +10,37 @@ type ScreenType =
   | 'Milk'
   | 'Chara'
   | 'Profit/Loss'
-  | 'Login/Signup';
+  | 'Login/Signup'
+  | 'Signup';
 
 interface LoginScreenProps {
   onNavigate: (screen: ScreenType) => void;
+  onLoginSuccess?: () => void;
 }
 
 /**
  * Login Screen
  * User authentication - Login functionality
  */
-export default function LoginScreen({ onNavigate }: LoginScreenProps) {
-  const [email, setEmail] = useState('');
+export default function LoginScreen({ onNavigate, onLoginSuccess }: LoginScreenProps) {
+  const [emailOrMobile, setEmailOrMobile] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const onLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please enter email and password');
+    if (!emailOrMobile || !password) {
+      Alert.alert('Error', 'Please enter email/mobile and password');
       return;
     }
     try {
       setLoading(true);
-      await authService.login(email.trim(), password);
-      onNavigate('Dashboard');
+      await authService.login(emailOrMobile.trim(), password);
+      // Call onLoginSuccess callback to update authentication state
+      if (onLoginSuccess) {
+        onLoginSuccess();
+      } else {
+        onNavigate('Dashboard');
+      }
     } catch (e: any) {
       Alert.alert('Login failed', e?.message || 'Something went wrong');
     } finally {
@@ -48,19 +54,18 @@ export default function LoginScreen({ onNavigate }: LoginScreenProps) {
 
   return (
     <View style={styles.container}>
-      <HeaderWithMenu
-        title="Dairy Farm Management"
-        subtitle="Login/Signup"
-        onNavigate={onNavigate}
-      />
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Dairy Farm Management</Text>
+        <Text style={styles.headerSubtitle}>Login</Text>
+      </View>
       <ScrollView style={styles.content}>
         <Text style={styles.title}>Login</Text>
         <Input
-          placeholder="Email"
+          placeholder="Email or Mobile Number"
           autoCapitalize="none"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
+          keyboardType="default"
+          value={emailOrMobile}
+          onChangeText={setEmailOrMobile}
           style={styles.input}
         />
         <Input
@@ -82,6 +87,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  header: {
+    backgroundColor: '#4CAF50',
+    padding: 20,
+    paddingTop: 50,
+    paddingBottom: 20,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 5,
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    color: '#E8F5E9',
   },
   content: {
     flex: 1,

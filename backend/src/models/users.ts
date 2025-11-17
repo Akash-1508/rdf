@@ -15,8 +15,6 @@ export interface User {
   mobile: string;
   gender?: string; // "male", "female", "other"
   address?: string;
-  otp?: string; // OTP for verification
-  otpVerified?: boolean; // Whether OTP is verified
   role: UserRoleCode;
   passwordHash: string; // store hash, never plain password
   isActive: boolean;

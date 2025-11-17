@@ -7,8 +7,8 @@ import { User } from '../../types';
 import { apiClient, setAuthToken } from '../api/apiClient';
 
 export const authService = {
-  login: async (email: string, password: string): Promise<User> => {
-    const res = await apiClient.post('/auth/login', { email, password });
+  login: async (emailOrMobile: string, password: string): Promise<User> => {
+    const res = await apiClient.post('/auth/login', { emailOrMobile, password });
     if (res?.token) {
       setAuthToken(res.token);
     }

@@ -1,18 +1,71 @@
 import { Request, Response } from "express";
 import crypto from "crypto";
-import { addUser, UserRoles } from "../models";
+import { addUser, UserRoles, findUserByEmail, findUserByMobile } from "../models";
 import { validateSignup, validateLogin, formatValidationErrors } from "../utils/validators";
+import { generateToken } from "../utils/jwt";
 
-export const login = (req: Request, res: Response) => {
+export const login = async (req: Request, res: Response) => {
   const validation = validateLogin(req.body);
   if (!validation.success) {
     return res.status(400).json(formatValidationErrors(validation.errors!));
   }
   
-  return res.json({ 
-    token: "dummy-token", 
-    user: { id: "u_1", name: "Demo", email: validation.data!.email } 
-  });
+  const { emailOrMobile, password } = validation.data!;
+  
+  // Check if it's email or mobile number
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailOrMobile);
+  const isMobile = /^[0-9]{10}$/.test(emailOrMobile);
+  
+  if (!isEmail && !isMobile) {
+    return res.status(400).json({ error: "Invalid email or mobile number format" });
+  }
+  
+  try {
+    // Find user by email or mobile
+    let user = null;
+    if (isEmail) {
+      user = await findUserByEmail(emailOrMobile.toLowerCase());
+    } else {
+      user = await findUserByMobile(emailOrMobile);
+    }
+    
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    
+    // Verify password hash
+    const [salt, hash] = user.passwordHash.split(':');
+    if (!salt || !hash) {
+      return res.status(500).json({ error: "Invalid password format" });
+    }
+    
+    const inputHash = crypto.scryptSync(password, salt, 64).toString("hex");
+    if (inputHash !== hash) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    
+    // Generate JWT token with user data
+    const token = generateToken({
+      userId: user._id.toString(),
+      email: user.email,
+      mobile: user.mobile,
+      name: user.name,
+      role: user.role,
+    });
+    
+    return res.json({ 
+      token, 
+      user: { 
+        id: user._id.toString(), 
+        name: user.name, 
+        email: user.email,
+        mobile: user.mobile,
+        role: user.role
+      } 
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Login failed" });
+  }
 };
 
 export const signup = async (req: Request, res: Response) => {
@@ -39,8 +92,6 @@ export const signup = async (req: Request, res: Response) => {
       mobile: validatedData.mobile.trim(),
       gender: validatedData.gender,
       address: validatedData.address?.trim(),
-      otp: validatedData.otp,
-      otpVerified: validatedData.otp ? false : undefined,
       role: userRole,
       passwordHash,
       isActive: true

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import Button from '../../components/common/Button';
 import { MilkTransaction } from '../../types';
 import { formatDate } from '../../utils/dateUtils';
 import { formatCurrency } from '../../utils/currencyUtils';
+import { milkService } from '../../services/milk/milkService';
 
 type ScreenType =
   | 'Dashboard'
@@ -25,6 +26,7 @@ type ScreenType =
 
 interface MilkScreenProps {
   onNavigate: (screen: ScreenType) => void;
+  onLogout?: () => void;
 }
 
 type TransactionType = 'sale' | 'purchase';
@@ -38,9 +40,10 @@ interface Contact {
   phone?: string;
 }
 
-export default function MilkScreen({ onNavigate }: MilkScreenProps) {
+export default function MilkScreen({ onNavigate, onLogout }: MilkScreenProps) {
   const [transactionType, setTransactionType] = useState<TransactionType>('purchase');
   const [transactions, setTransactions] = useState<MilkTransaction[]>([]);
+  const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showContactDropdown, setShowContactDropdown] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
@@ -55,6 +58,24 @@ export default function MilkScreen({ onNavigate }: MilkScreenProps) {
     contactPhone: '',
     notes: '',
   });
+
+  // Load transactions on mount
+  useEffect(() => {
+    loadTransactions();
+  }, []);
+
+  const loadTransactions = async () => {
+    try {
+      setLoading(true);
+      const data = await milkService.getTransactions();
+      setTransactions(data);
+    } catch (error: any) {
+      console.error('Failed to load transactions:', error);
+      Alert.alert('Error', 'Failed to load transactions. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Get unique contacts from transactions
   const getContacts = (): Contact[] => {
@@ -79,40 +100,56 @@ export default function MilkScreen({ onNavigate }: MilkScreenProps) {
 
   const contacts = getContacts();
 
-  const handleAddTransaction = () => {
+  const handleAddTransaction = async () => {
     if (!formData.quantity || !formData.pricePerLiter || !formData.contactName) {
       Alert.alert('Error', 'Please fill all required fields');
       return;
     }
 
-    const quantity = parseFloat(formData.quantity);
-    const pricePerLiter = parseFloat(formData.pricePerLiter);
-    const totalAmount = quantity * pricePerLiter;
+    try {
+      setLoading(true);
+      const quantity = parseFloat(formData.quantity);
+      const pricePerLiter = parseFloat(formData.pricePerLiter);
+      const totalAmount = quantity * pricePerLiter;
 
-    const newTransaction: MilkTransaction = {
-      id: Date.now().toString(),
-      type: transactionType,
-      date: new Date(formData.date),
-      quantity: quantity,
-      pricePerLiter: pricePerLiter,
-      totalAmount: totalAmount,
-      [transactionType === 'sale' ? 'buyer' : 'seller']: formData.contactName,
-      [transactionType === 'sale' ? 'buyerPhone' : 'sellerPhone']: formData.contactPhone || undefined,
-      notes: formData.notes,
-    };
+      const transactionData: Omit<MilkTransaction, '_id'> = {
+        type: transactionType,
+        date: new Date(formData.date),
+        quantity: quantity,
+        pricePerLiter: pricePerLiter,
+        totalAmount: totalAmount,
+        [transactionType === 'sale' ? 'buyer' : 'seller']: formData.contactName,
+        [transactionType === 'sale' ? 'buyerPhone' : 'sellerPhone']: formData.contactPhone || undefined,
+        notes: formData.notes,
+      };
 
-    setTransactions([newTransaction, ...transactions]);
-    // Keep contact info filled, only reset quantity, price, date, notes
-    setFormData({
-      date: new Date().toISOString().split('T')[0],
-      quantity: '',
-      pricePerLiter: '',
-      contactName: formData.contactName, // Keep contact name
-      contactPhone: formData.contactPhone, // Keep contact phone
-      notes: '',
-    });
-    setShowForm(false);
-    Alert.alert('Success', `Milk ${transactionType === 'sale' ? 'sale' : 'purchase'} recorded successfully!`);
+      let savedTransaction: MilkTransaction;
+      if (transactionType === 'sale') {
+        savedTransaction = await milkService.recordSale(transactionData);
+      } else {
+        savedTransaction = await milkService.recordPurchase(transactionData);
+      }
+
+      // Reload all transactions to get the latest data from DB
+      await loadTransactions();
+
+      // Keep contact info filled, only reset quantity, price, date, notes
+      setFormData({
+        date: new Date().toISOString().split('T')[0],
+        quantity: '',
+        pricePerLiter: '',
+        contactName: formData.contactName, // Keep contact name
+        contactPhone: formData.contactPhone, // Keep contact phone
+        notes: '',
+      });
+      setShowForm(false);
+      Alert.alert('Success', `Milk ${transactionType === 'sale' ? 'sale' : 'purchase'} saved to database!`);
+    } catch (error: any) {
+      console.error('Failed to save transaction:', error);
+      Alert.alert('Error', error.message || 'Failed to save transaction. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleContactSelect = (contact: Contact) => {
@@ -129,7 +166,7 @@ export default function MilkScreen({ onNavigate }: MilkScreenProps) {
     // Form already has input fields, user can type new contact
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (_id: string) => {
     Alert.alert(
       `Delete ${transactionType === 'sale' ? 'Sale' : 'Purchase'}`,
       `Are you sure you want to delete this ${transactionType === 'sale' ? 'sale' : 'purchase'} record?`,
@@ -139,7 +176,7 @@ export default function MilkScreen({ onNavigate }: MilkScreenProps) {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            setTransactions(transactions.filter((t) => t.id !== id));
+            setTransactions(transactions.filter((t) => t._id !== _id));
             Alert.alert('Success', `${transactionType === 'sale' ? 'Sale' : 'Purchase'} record deleted!`);
           },
         },
@@ -268,6 +305,8 @@ export default function MilkScreen({ onNavigate }: MilkScreenProps) {
         title="Dairy Farm Management"
         subtitle="Milk"
         onNavigate={onNavigate}
+        isAuthenticated={true}
+        onLogout={onLogout}
       />
       <ScrollView style={styles.content}>
         {/* Transaction Type Toggle */}
@@ -476,7 +515,7 @@ export default function MilkScreen({ onNavigate }: MilkScreenProps) {
 
                 {/* Individual Transactions for the Day */}
                 {dayGroup.transactions.map((transaction) => (
-                  <View key={transaction.id} style={styles.transactionCard}>
+                  <View key={transaction._id} style={styles.transactionCard}>
                     <View style={styles.transactionHeader}>
                       <View style={styles.transactionHeaderLeft}>
                         <Text style={styles.transactionTime}>
@@ -490,7 +529,7 @@ export default function MilkScreen({ onNavigate }: MilkScreenProps) {
                         </Text>
                       </View>
                       <TouchableOpacity
-                        onPress={() => handleDelete(transaction.id)}
+                        onPress={() => handleDelete(transaction._id)}
                         style={styles.deleteButton}
                       >
                         <Text style={styles.deleteButtonText}>Delete</Text>

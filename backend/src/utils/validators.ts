@@ -51,13 +51,11 @@ export const signupSchema = z.object({
     .default(2),
 });
 
-// Login validation schema
+// Login validation schema - accepts email OR mobile
 export const loginSchema = z.object({
-  email: z
+  emailOrMobile: z
     .string()
-    .min(1, "Email is required")
-    .email("Invalid email format")
-    .toLowerCase()
+    .min(1, "Email or mobile number is required")
     .trim(),
   password: z
     .string()

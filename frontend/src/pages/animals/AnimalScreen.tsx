@@ -19,6 +19,7 @@ import { AnimalTransaction, AnimalMedia } from '../../types';
 import { formatDate } from '../../utils/dateUtils';
 import { formatCurrency } from '../../utils/currencyUtils';
 import { Animated } from 'react-native';
+import { animalService } from '../../services/animals/animalService';
 
 type ScreenType =
   | 'Dashboard'
@@ -30,15 +31,27 @@ type ScreenType =
 
 interface AnimalScreenProps {
   onNavigate: (screen: ScreenType) => void;
+  onLogout?: () => void;
 }
 
 type TransactionType = 'sale' | 'purchase';
 
-export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
+interface Contact {
+  name: string;
+  phone?: string;
+}
+
+export default function AnimalScreen({ onNavigate, onLogout }: AnimalScreenProps) {
   const [transactionType, setTransactionType] = useState<TransactionType>('purchase');
   const [transactions, setTransactions] = useState<AnimalTransaction[]>([]);
+  const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showBreedOthers, setShowBreedOthers] = useState(false);
+  const [showContactDropdown, setShowContactDropdown] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [fadeAnim] = useState(new Animated.Value(0));
   
   const [formData, setFormData] = useState({
@@ -147,6 +160,11 @@ export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
   const showFullMilkFields = isFemale && (isCowOrBuffalo || isBchiyaOrPaadi);
   const showCalvingFields = isFemale && (isCowOrBuffalo || isGoatOrSheep || isBchiyaOrPaadi);
 
+  // Load transactions on mount
+  useEffect(() => {
+    loadTransactions();
+  }, []);
+
   // Animate conditional fields
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -155,6 +173,42 @@ export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
       useNativeDriver: true,
     }).start();
   }, [isMale, isFemale, fadeAnim]);
+
+  const loadTransactions = async () => {
+    try {
+      setLoading(true);
+      const data = await animalService.getTransactions();
+      setTransactions(data);
+    } catch (error: any) {
+      console.error('Failed to load transactions:', error);
+      Alert.alert('Error', 'Failed to load transactions. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get unique contacts from transactions
+  const getContacts = (): Contact[] => {
+    const contactsMap = new Map<string, Contact>();
+
+    transactions
+      .filter((t) => t.type === transactionType)
+      .forEach((transaction) => {
+        const name = transactionType === 'sale' ? transaction.buyer : transaction.seller;
+        const phone = transactionType === 'sale' ? transaction.buyerPhone : transaction.sellerPhone;
+        
+        if (name) {
+          const key = phone ? `${name}|${phone}` : name;
+          if (!contactsMap.has(key)) {
+            contactsMap.set(key, { name, phone });
+          }
+        }
+      });
+
+    return Array.from(contactsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  const contacts = getContacts();
 
   const handlePickImage = () => {
     const options = {
@@ -244,71 +298,107 @@ export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
     setVideos(videos.filter((_, i) => i !== index));
   };
 
-  const handleAddTransaction = () => {
+  const handleAddTransaction = async () => {
     if (!formData.animalName || !formData.price || !formData.contactName || !formData.animalType || !formData.gender) {
       Alert.alert('Error', 'Please fill all required fields');
       return;
     }
 
-    const finalBreed = showBreedOthers ? formData.customBreed : formData.breed;
+    try {
+      setLoading(true);
+      const price = parseFloat(formData.price);
 
-    const newTransaction: AnimalTransaction = {
-      id: Date.now().toString(),
-      animalId: formData.animalName,
-      type: transactionType,
-      date: new Date(formData.date),
-      price: parseFloat(formData.price),
-      [transactionType === 'sale' ? 'buyer' : 'seller']: formData.contactName,
-      notes: formData.description || formData.notes,
-      images: images.length > 0 ? images : undefined,
-      videos: videos.length > 0 ? videos : undefined,
-    };
+      const transactionData: Omit<AnimalTransaction, '_id' | 'id'> = {
+        type: transactionType,
+        date: new Date(formData.date),
+        price: price,
+        [transactionType === 'sale' ? 'buyer' : 'seller']: formData.contactName,
+        [transactionType === 'sale' ? 'buyerPhone' : 'sellerPhone']: formData.contactPhone || undefined,
+        notes: formData.description || formData.notes || undefined,
+        animalId: formData.animalName, // Store animal name as animalId for reference
+        animalName: formData.animalName,
+        animalType: formData.animalType || undefined,
+        breed: showBreedOthers ? formData.customBreed : formData.breed || undefined,
+        gender: formData.gender || undefined,
+        location: formData.location || undefined,
+        temperament: formData.temperament || undefined,
+        description: formData.description || undefined,
+      };
 
-    setTransactions([newTransaction, ...transactions]);
-    
-    // Reset form
+      let savedTransaction: AnimalTransaction;
+      if (transactionType === 'sale') {
+        savedTransaction = await animalService.recordSale(transactionData);
+      } else {
+        savedTransaction = await animalService.recordPurchase(transactionData);
+      }
+
+      // Reload all transactions to get the latest data from DB
+      await loadTransactions();
+
+      // Keep contact info filled, only reset other fields
+      setFormData({
+        animalName: '',
+        animalType: '',
+        breed: '',
+        customBreed: '',
+        gender: '',
+        price: '',
+        location: '',
+        purpose: '',
+        temperament: '',
+        description: '',
+        date: new Date().toISOString().split('T')[0],
+        contactName: formData.contactName, // Keep contact name
+        contactPhone: formData.contactPhone, // Keep contact phone
+        notes: '',
+        breedingCapability: '',
+        semenQuality: '',
+        successfulBreedingCount: '',
+        workType: '',
+        staminaLevel: '',
+        trainingLevel: '',
+        hornStatus: '',
+        pregnancyStatus: '',
+        pregnancyMonth: '',
+        birthStatus: '',
+        previousCalvingsCount: '',
+        lastCalvingDate: '',
+        expectedCalvingDate: '',
+        milkCapacity: '',
+        peakMilkOutput: '',
+        lactationStage: '',
+        milkingFrequency: '',
+        hasCalf: '',
+        calfAge: '',
+        calfGender: '',
+        calfBirthDate: '',
+      });
+      setImages([]);
+      setVideos([]);
+      setShowBreedOthers(false);
+      setShowForm(false);
+      setShowContactDropdown(false);
+      Alert.alert('Success', `Animal ${transactionType === 'sale' ? 'sale' : 'purchase'} saved to database!`);
+    } catch (error: any) {
+      console.error('Failed to save transaction:', error);
+      Alert.alert('Error', error.message || 'Failed to save transaction. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleContactSelect = (contact: Contact) => {
     setFormData({
-      animalName: '',
-      animalType: '',
-      breed: '',
-      customBreed: '',
-      gender: '',
-      price: '',
-      location: '',
-      purpose: '',
-      temperament: '',
-      description: '',
-      date: new Date().toISOString().split('T')[0],
-      contactName: '',
-      contactPhone: '',
-      notes: '',
-      breedingCapability: '',
-      semenQuality: '',
-      successfulBreedingCount: '',
-      workType: '',
-      staminaLevel: '',
-      trainingLevel: '',
-      hornStatus: '',
-      pregnancyStatus: '',
-      pregnancyMonth: '',
-      birthStatus: '',
-      previousCalvingsCount: '',
-      lastCalvingDate: '',
-      expectedCalvingDate: '',
-      milkCapacity: '',
-      peakMilkOutput: '',
-      lactationStage: '',
-      milkingFrequency: '',
-      hasCalf: '',
-      calfAge: '',
-      calfGender: '',
-      calfBirthDate: '',
+      ...formData,
+      contactName: contact.name,
+      contactPhone: contact.phone || '',
     });
-    setImages([]);
-    setVideos([]);
-    setShowBreedOthers(false);
-    setShowForm(false);
-    Alert.alert('Success', `Animal ${transactionType === 'sale' ? 'sale' : 'purchase'} recorded successfully!`);
+    setShowContactDropdown(false);
+  };
+
+  const handleAddNewContact = () => {
+    setShowContactDropdown(false);
+    // Form already has input fields, user can type new contact
   };
 
   const handleSaveDraft = () => {
@@ -336,7 +426,8 @@ export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            setTransactions(transactions.filter((t) => t.id !== id));
+            // TODO: Add backend delete API call
+            setTransactions(transactions.filter((t) => (t._id || t.id) !== id));
             Alert.alert('Success', `${transactionType === 'sale' ? 'Sale' : 'Purchase'} record deleted!`);
           },
         },
@@ -347,19 +438,128 @@ export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
   const filteredTransactions = transactions.filter((t) => t.type === transactionType);
   const totalAmount = filteredTransactions.reduce((sum, t) => sum + t.price, 0);
 
+  // Helper function to get unique contact identifier (name + phone)
+  const getContactKey = (transaction: AnimalTransaction): string => {
+    const name = transactionType === 'sale' ? transaction.buyer : transaction.seller;
+    const phone = transactionType === 'sale' ? transaction.buyerPhone : transaction.sellerPhone;
+    return phone ? `${name} | ${phone}` : name || '';
+  };
+
+  // Monthly sales summary by buyer (only for sales)
+  const getMonthlySalesByBuyer = () => {
+    if (transactionType !== 'sale') return {};
+
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const monthlySales = transactions.filter((t) => {
+      if (t.type !== 'sale' || !t.buyer) return false;
+      const tDate = new Date(t.date);
+      return tDate.getFullYear() === year && tDate.getMonth() + 1 === month;
+    });
+
+    const buyerSummary: Record<string, { count: number; totalAmount: number; name: string; phone?: string }> = {};
+
+    monthlySales.forEach((sale) => {
+      if (sale.buyer) {
+        const key = getContactKey(sale);
+        if (!buyerSummary[key]) {
+          buyerSummary[key] = { count: 0, totalAmount: 0, name: sale.buyer, phone: sale.buyerPhone };
+        }
+        buyerSummary[key].count += 1;
+        buyerSummary[key].totalAmount += sale.price;
+      }
+    });
+
+    return buyerSummary;
+  };
+
+  const monthlySalesByBuyer = getMonthlySalesByBuyer();
+  const monthlyBuyers = Object.keys(monthlySalesByBuyer).sort();
+
+  // Get month name in Hindi/English format
+  const getMonthDisplayName = (monthYear: string) => {
+    const [year, month] = monthYear.split('-').map(Number);
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return `${months[month - 1]} ${year}`;
+  };
+
+  // Generate month options (last 12 months)
+  const getMonthOptions = () => {
+    const options: string[] = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      options.push(`${year}-${month}`);
+    }
+    return options;
+  };
+
+  // Group transactions by date for day-wise view
+  const getDayWiseTransactions = () => {
+    const grouped: Record<string, AnimalTransaction[]> = {};
+
+    filteredTransactions.forEach((transaction) => {
+      const dateKey = new Date(transaction.date).toISOString().split('T')[0];
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = [];
+      }
+      grouped[dateKey].push(transaction);
+    });
+
+    // Sort dates in descending order
+    return Object.keys(grouped)
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+      .map((dateKey) => ({
+        date: dateKey,
+        transactions: grouped[dateKey],
+      }));
+  };
+
+  const dayWiseTransactions = getDayWiseTransactions();
+
+  // Get day-wise summary by contact (buyer for sales, seller for purchases)
+  const getDayWiseSummary = (transactions: AnimalTransaction[]) => {
+    const summary: Record<string, { count: number; totalAmount: number; name: string; phone?: string }> = {};
+
+    transactions.forEach((transaction) => {
+      const key = getContactKey(transaction);
+      const name = transactionType === 'sale' ? transaction.buyer : transaction.seller;
+      const phone = transactionType === 'sale' ? transaction.buyerPhone : transaction.sellerPhone;
+
+      if (name) {
+        if (!summary[key]) {
+          summary[key] = { count: 0, totalAmount: 0, name, phone };
+        }
+        summary[key].count += 1;
+        summary[key].totalAmount += transaction.price;
+      }
+    });
+
+    return summary;
+  };
+
   return (
     <View style={styles.container}>
       <HeaderWithMenu
         title="Dairy Farm Management"
         subtitle="Animals"
         onNavigate={onNavigate}
+        isAuthenticated={true}
+        onLogout={onLogout}
       />
       <ScrollView style={styles.content}>
         {/* Transaction Type Toggle */}
         <View style={styles.toggleContainer}>
           <TouchableOpacity
             style={[styles.toggleButton, transactionType === 'purchase' && styles.toggleButtonActive]}
-            onPress={() => setTransactionType('purchase')}
+            onPress={() => {
+              setTransactionType('purchase');
+              setShowContactDropdown(false);
+            }}
             activeOpacity={0.7}
           >
             <Text style={[styles.toggleText, transactionType === 'purchase' && styles.toggleTextActive]}>
@@ -368,7 +568,10 @@ export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.toggleButton, transactionType === 'sale' && styles.toggleButtonActive]}
-            onPress={() => setTransactionType('sale')}
+            onPress={() => {
+              setTransactionType('sale');
+              setShowContactDropdown(false);
+            }}
             activeOpacity={0.7}
           >
             <Text style={[styles.toggleText, transactionType === 'sale' && styles.toggleTextActive]}>
@@ -381,11 +584,102 @@ export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
           <Text style={styles.summaryTitle}>Total {transactionType === 'sale' ? 'Sales' : 'Purchases'}</Text>
           <Text style={styles.summaryValue}>{formatCurrency(totalAmount)}</Text>
           <Text style={styles.summarySubtext}>{filteredTransactions.length} Animals</Text>
+          <Text style={styles.summarySubtext}>{filteredTransactions.length} Transactions</Text>
         </View>
+
+        {/* Monthly Sales Summary by Buyer (only for sales) */}
+        {transactionType === 'sale' && (
+          <View style={styles.monthlySummaryContainer}>
+            <View style={styles.monthSelectorContainer}>
+              <Text style={styles.monthSelectorLabel}>Select Month:</Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.monthSelector}
+              >
+                {getMonthOptions().map((monthOption) => (
+                  <TouchableOpacity
+                    key={monthOption}
+                    style={[
+                      styles.monthOption,
+                      selectedMonth === monthOption && styles.monthOptionActive,
+                    ]}
+                    onPress={() => setSelectedMonth(monthOption)}
+                  >
+                    <Text
+                      style={[
+                        styles.monthOptionText,
+                        selectedMonth === monthOption && styles.monthOptionTextActive,
+                      ]}
+                    >
+                      {getMonthDisplayName(monthOption)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {monthlyBuyers.length > 0 ? (
+              <View style={styles.buyerSummaryCard}>
+                <Text style={styles.buyerSummaryTitle}>
+                  Monthly Sales Summary - {getMonthDisplayName(selectedMonth)}
+                </Text>
+                <View style={styles.buyerSummaryHeader}>
+                  <Text style={styles.buyerSummaryHeaderText}>Buyer</Text>
+                  <Text style={styles.buyerSummaryHeaderText}>Count</Text>
+                  <Text style={styles.buyerSummaryHeaderText}>Total</Text>
+                </View>
+                {monthlyBuyers.map((buyerKey) => {
+                  const summary = monthlySalesByBuyer[buyerKey];
+                  return (
+                    <View key={buyerKey} style={styles.buyerSummaryRow}>
+                      <View style={styles.buyerNameContainer}>
+                        <Text style={styles.buyerName}>{summary.name}</Text>
+                        {summary.phone && (
+                          <Text style={styles.buyerPhone}>{summary.phone}</Text>
+                        )}
+                      </View>
+                      <Text style={styles.buyerQuantity}>
+                        {summary.count}
+                      </Text>
+                      <Text style={styles.buyerAmount}>
+                        {formatCurrency(summary.totalAmount)}
+                      </Text>
+                    </View>
+                  );
+                })}
+                <View style={styles.buyerSummaryTotal}>
+                  <Text style={styles.buyerSummaryTotalLabel}>Grand Total:</Text>
+                  <Text style={styles.buyerSummaryTotalQuantity}>
+                    {Object.values(monthlySalesByBuyer)
+                      .reduce((sum, s) => sum + s.count, 0)}
+                  </Text>
+                  <Text style={styles.buyerSummaryTotalAmount}>
+                    {formatCurrency(
+                      Object.values(monthlySalesByBuyer).reduce(
+                        (sum, s) => sum + s.totalAmount,
+                        0
+                      )
+                    )}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.emptyMonthlySummary}>
+                <Text style={styles.emptyMonthlySummaryText}>
+                  No sales records for {getMonthDisplayName(selectedMonth)}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
 
         <TouchableOpacity
           style={[styles.addButton, transactionType === 'sale' ? styles.addButtonSale : styles.addButtonPurchase]}
-          onPress={() => setShowForm(true)}
+          onPress={() => {
+            setShowForm(true);
+            setShowContactDropdown(false);
+          }}
           activeOpacity={0.7}
         >
           <Text style={styles.addButtonText}>+ Add New {transactionType === 'sale' ? 'Sale' : 'Purchase'}</Text>
@@ -397,75 +691,139 @@ export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
             <Text style={styles.emptySubtext}>Tap "Add New {transactionType === 'sale' ? 'Sale' : 'Purchase'}" to add one</Text>
           </View>
         ) : (
-          filteredTransactions.map((transaction) => (
-            <View key={transaction.id} style={styles.transactionCard}>
-              <View style={styles.transactionHeader}>
-                <View>
-                  <Text style={styles.transactionAnimal}>{transaction.animalId}</Text>
-                  <Text style={styles.transactionDate}>
-                    {formatDate(transaction.date)}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => handleDelete(transaction.id)}
-                  style={styles.deleteButton}
-                >
-                  <Text style={styles.deleteButtonText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.transactionDetails}>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>{transaction.type === 'sale' ? 'Buyer:' : 'Seller:'}</Text>
-                  <Text style={styles.detailValue}>
-                    {transaction.type === 'sale' ? transaction.buyer : transaction.seller}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Price:</Text>
-                  <Text style={styles.detailValue}>{formatCurrency(transaction.price)}</Text>
-                </View>
-                {transaction.notes && (
-                  <View style={styles.notesContainer}>
-                    <Text style={styles.notesLabel}>Notes:</Text>
-                    <Text style={styles.notesText}>{transaction.notes}</Text>
+          dayWiseTransactions.map((dayGroup) => {
+            const daySummary = getDayWiseSummary(dayGroup.transactions);
+            const dayTotalAmount = dayGroup.transactions.reduce(
+              (sum, t) => sum + t.price,
+              0
+            );
+            const contacts = Object.keys(daySummary).sort();
+
+            return (
+              <View key={dayGroup.date} style={styles.dayGroupCard}>
+                {/* Day Header with Summary */}
+                <View style={[
+                  styles.dayHeader,
+                  transactionType === 'sale' ? styles.dayHeaderSale : styles.dayHeaderPurchase,
+                ]}>
+                  <View style={styles.dayHeaderLeft}>
+                    <Text style={styles.dayDate}>{formatDate(new Date(dayGroup.date))}</Text>
+                    <Text style={styles.daySummaryText}>
+                      {dayGroup.transactions.length} Transaction{dayGroup.transactions.length !== 1 ? 's' : ''} • {formatCurrency(dayTotalAmount)}
+                    </Text>
                   </View>
-                )}
-                
-                {/* Display Images */}
-                {transaction.images && transaction.images.length > 0 && (
-                  <View style={styles.mediaSection}>
-                    <Text style={styles.mediaSectionLabel}>Photos ({transaction.images.length})</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      {transaction.images.map((image, index) => (
-                        <Image
-                          key={index}
-                          source={{ uri: image.uri }}
-                          style={styles.transactionImage}
-                        />
-                      ))}
-                    </ScrollView>
+                </View>
+
+                {/* Day-wise Breakdown by Contact */}
+                {contacts.length > 0 && (
+                  <View style={styles.dayBreakdownCard}>
+                    <Text style={styles.dayBreakdownTitle}>
+                      {transactionType === 'sale' ? 'Buyers' : 'Sellers'} for this day:
+                    </Text>
+                    {contacts.map((contactKey) => {
+                      const summary = daySummary[contactKey];
+                      return (
+                        <View key={contactKey} style={styles.dayBreakdownRow}>
+                          <View style={styles.dayBreakdownContactContainer}>
+                            <Text style={styles.dayBreakdownContact}>{summary.name}</Text>
+                            {summary.phone && (
+                              <Text style={styles.dayBreakdownPhone}>{summary.phone}</Text>
+                            )}
+                          </View>
+                          <View style={styles.dayBreakdownDetails}>
+                            <Text style={[styles.dayBreakdownQuantity, { marginRight: 15 }]}>
+                              {summary.count}
+                            </Text>
+                            <Text style={[
+                              styles.dayBreakdownAmount,
+                              transactionType === 'sale' ? styles.dayBreakdownAmountSale : styles.dayBreakdownAmountPurchase,
+                            ]}>
+                              {formatCurrency(summary.totalAmount)}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
                   </View>
                 )}
 
-                {/* Display Videos */}
-                {transaction.videos && transaction.videos.length > 0 && (
-                  <View style={styles.mediaSection}>
-                    <Text style={styles.mediaSectionLabel}>Videos ({transaction.videos.length})</Text>
-                    <View style={styles.videoListContainer}>
-                      {transaction.videos.map((video, index) => (
-                        <View key={index} style={styles.videoItem}>
-                          <Text style={styles.videoIcon}>🎥</Text>
-                          <Text style={styles.videoItemName} numberOfLines={1}>
-                            {video.name || `Video ${index + 1}`}
+                {/* Individual Transactions for the Day */}
+                {dayGroup.transactions.map((transaction) => (
+                  <View key={transaction._id || transaction.id} style={styles.transactionCard}>
+                    <View style={styles.transactionHeader}>
+                      <View style={styles.transactionHeaderLeft}>
+                        <Text style={styles.transactionTime}>
+                          {new Date(transaction.date).toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </Text>
+                        <Text style={styles.transactionAnimal}>
+                          {transaction.animalName || transaction.animalId || 'Animal'}
+                          {transaction.animalType && ` (${transaction.animalType})`}
+                          {transaction.breed && ` - ${transaction.breed}`}
+                        </Text>
+                        <Text style={styles.transactionQuantity}>
+                          {formatCurrency(transaction.price)}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => handleDelete(transaction._id || transaction.id || '')}
+                        style={styles.deleteButton}
+                      >
+                        <Text style={styles.deleteButtonText}>Delete</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.transactionDetails}>
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>{transaction.type === 'sale' ? 'Buyer:' : 'Seller:'}</Text>
+                        <View style={styles.detailValueContainer}>
+                          <Text style={styles.detailValue}>
+                            {transaction.type === 'sale' ? transaction.buyer : transaction.seller}
+                          </Text>
+                          {(transactionType === 'sale' ? transaction.buyerPhone : transaction.sellerPhone) && (
+                            <Text style={styles.detailPhone}>
+                              {(transactionType === 'sale' ? transaction.buyerPhone : transaction.sellerPhone)}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                      {(transaction.animalType || transaction.breed || transaction.gender) && (
+                        <View style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>Animal Details:</Text>
+                          <Text style={styles.detailValue}>
+                            {[
+                              transaction.animalType,
+                              transaction.breed,
+                              transaction.gender
+                            ].filter(Boolean).join(' • ')}
                           </Text>
                         </View>
-                      ))}
+                      )}
+                      {transaction.location && (
+                        <View style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>Location:</Text>
+                          <Text style={styles.detailValue}>{transaction.location}</Text>
+                        </View>
+                      )}
+                      {transaction.notes && (
+                        <View style={styles.notesContainer}>
+                          <Text style={styles.notesLabel}>Notes:</Text>
+                          <Text style={styles.notesText}>{transaction.notes}</Text>
+                        </View>
+                      )}
+                      {transaction.description && (
+                        <View style={styles.notesContainer}>
+                          <Text style={styles.notesLabel}>Description:</Text>
+                          <Text style={styles.notesText}>{transaction.description}</Text>
+                        </View>
+                      )}
                     </View>
                   </View>
-                )}
+                ))}
               </View>
-            </View>
-          ))
+            );
+          })
         )}
       </ScrollView>
 
@@ -481,7 +839,10 @@ export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}> Animal {transactionType === 'sale' ? 'Sale' : 'Purchase'}</Text>
               <TouchableOpacity
-                onPress={() => setShowForm(false)}
+                onPress={() => {
+                  setShowForm(false);
+                  setShowContactDropdown(false);
+                }}
                 style={styles.closeButton}
               >
                 <Text style={styles.closeButtonText}>✕</Text>
@@ -828,12 +1189,54 @@ export default function AnimalScreen({ onNavigate }: AnimalScreenProps) {
                 <Text style={styles.cardTitle}>Contact Information (संपर्क जानकारी)</Text>
                 
                 <Text style={styles.label}>{transactionType === 'sale' ? 'Buyer' : 'Seller'} Name ({transactionType === 'sale' ? 'खरीदार' : 'विक्रेता'} का नाम) *</Text>
+              <View style={styles.contactInputContainer}>
+                <TouchableOpacity
+                  style={styles.contactSelectorButton}
+                  onPress={() => setShowContactDropdown(!showContactDropdown)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.contactSelectorButtonText}>
+                    {contacts.length > 0 ? '📋 Select from list' : 'No previous contacts'}
+                  </Text>
+                  <Text style={styles.contactSelectorArrow}>
+                    {showContactDropdown ? '▲' : '▼'}
+                  </Text>
+                </TouchableOpacity>
+                {showContactDropdown && contacts.length > 0 && (
+                  <View style={styles.contactDropdown}>
+                    <ScrollView style={styles.contactDropdownList} nestedScrollEnabled>
+                      {contacts.map((contact, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={styles.contactDropdownItem}
+                          onPress={() => handleContactSelect(contact)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={styles.contactDropdownItemContent}>
+                            <Text style={styles.contactDropdownItemName}>{contact.name}</Text>
+                            {contact.phone && (
+                              <Text style={styles.contactDropdownItemPhone}>{contact.phone}</Text>
+                            )}
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                      <TouchableOpacity
+                        style={[styles.contactDropdownItem, styles.contactDropdownItemNew]}
+                        onPress={handleAddNewContact}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.contactDropdownItemNewText}>+ Add New Contact</Text>
+                      </TouchableOpacity>
+                    </ScrollView>
+                  </View>
+                )}
                 <Input
                   placeholder={`Enter ${transactionType === 'sale' ? 'buyer' : 'seller'} name`}
                   value={formData.contactName}
                   onChangeText={(text) => setFormData({ ...formData, contactName: text })}
                   style={styles.input}
                 />
+              </View>
 
                 <Text style={styles.label}>{transactionType === 'sale' ? 'Buyer' : 'Seller'} Phone ({transactionType === 'sale' ? 'खरीदार' : 'विक्रेता'} का फोन)</Text>
                 <Input
@@ -1333,6 +1736,343 @@ const styles = StyleSheet.create({
     color: '#333',
     marginLeft: 8,
     flex: 1,
+  },
+  monthlySummaryContainer: {
+    marginBottom: 15,
+  },
+  monthSelectorContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  monthSelectorLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 10,
+  },
+  monthSelector: {
+    flexDirection: 'row',
+  },
+  monthOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#F5F5F5',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  monthOptionActive: {
+    backgroundColor: '#2196F3',
+    borderColor: '#2196F3',
+  },
+  monthOptionText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
+  monthOptionTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  buyerSummaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  buyerSummaryTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  buyerSummaryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingBottom: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: '#2196F3',
+    marginBottom: 10,
+  },
+  buyerSummaryHeaderText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2196F3',
+    flex: 1,
+    textAlign: 'center',
+  },
+  buyerSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    alignItems: 'center',
+  },
+  buyerNameContainer: {
+    flex: 1,
+  },
+  buyerName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  buyerPhone: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  buyerQuantity: {
+    fontSize: 14,
+    color: '#666',
+    flex: 1,
+    textAlign: 'center',
+  },
+  buyerAmount: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2196F3',
+    flex: 1,
+    textAlign: 'right',
+  },
+  buyerSummaryTotal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 15,
+    marginTop: 10,
+    borderTopWidth: 2,
+    borderTopColor: '#2196F3',
+    alignItems: 'center',
+  },
+  buyerSummaryTotalLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+  },
+  buyerSummaryTotalQuantity: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#666',
+    flex: 1,
+    textAlign: 'center',
+  },
+  buyerSummaryTotalAmount: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2196F3',
+    flex: 1,
+    textAlign: 'right',
+  },
+  emptyMonthlySummary: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  emptyMonthlySummaryText: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+  },
+  dayGroupCard: {
+    marginBottom: 15,
+  },
+  dayHeader: {
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 10,
+    borderLeftWidth: 4,
+  },
+  dayHeaderSale: {
+    backgroundColor: '#E3F2FD',
+    borderLeftColor: '#2196F3',
+  },
+  dayHeaderPurchase: {
+    backgroundColor: '#E8F5E9',
+    borderLeftColor: '#4CAF50',
+  },
+  dayHeaderLeft: {
+    flex: 1,
+  },
+  dayDate: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 6,
+  },
+  daySummaryText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  dayBreakdownCard: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  dayBreakdownTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 10,
+  },
+  dayBreakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  dayBreakdownContactContainer: {
+    flex: 1,
+  },
+  dayBreakdownContact: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  dayBreakdownPhone: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  dayBreakdownDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dayBreakdownQuantity: {
+    fontSize: 13,
+    color: '#666',
+    minWidth: 60,
+    textAlign: 'right',
+  },
+  dayBreakdownAmount: {
+    fontSize: 14,
+    fontWeight: '600',
+    minWidth: 80,
+    textAlign: 'right',
+  },
+  dayBreakdownAmountSale: {
+    color: '#2196F3',
+  },
+  dayBreakdownAmountPurchase: {
+    color: '#4CAF50',
+  },
+  transactionHeaderLeft: {
+    flex: 1,
+  },
+  transactionTime: {
+    fontSize: 12,
+    color: '#999',
+    marginBottom: 4,
+  },
+  transactionQuantity: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  detailValueContainer: {
+    alignItems: 'flex-end',
+  },
+  detailPhone: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  contactInputContainer: {
+    marginBottom: 12,
+  },
+  contactSelectorButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F0F0F0',
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  contactSelectorButtonText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  contactSelectorArrow: {
+    fontSize: 12,
+    color: '#666',
+  },
+  contactDropdown: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    marginBottom: 8,
+    maxHeight: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 1000,
+  },
+  contactDropdownList: {
+    maxHeight: 200,
+  },
+  contactDropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  contactDropdownItemContent: {
+    flexDirection: 'column',
+  },
+  contactDropdownItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  contactDropdownItemPhone: {
+    fontSize: 12,
+    color: '#666',
+  },
+  contactDropdownItemNew: {
+    backgroundColor: '#E3F2FD',
+    borderBottomWidth: 0,
+  },
+  contactDropdownItemNewText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1976D2',
+    textAlign: 'center',
   },
 });
 

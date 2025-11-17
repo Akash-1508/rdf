@@ -12,6 +12,7 @@ type ScreenType =
 
 interface DashboardScreenProps {
   onNavigate: (screen: ScreenType) => void;
+  onLogout?: () => void;
 }
 
 /**
@@ -22,13 +23,15 @@ interface DashboardScreenProps {
  * - Recent sales/purchases
  * - Profit/Loss summary
  */
-export default function DashboardScreen({ onNavigate }: DashboardScreenProps) {
+export default function DashboardScreen({ onNavigate, onLogout }: DashboardScreenProps) {
   return (
     <View style={styles.container}>
       <HeaderWithMenu
         title="Dairy Farm Management"
         subtitle="Dashboard"
         onNavigate={onNavigate}
+        isAuthenticated={true}
+        onLogout={onLogout}
       />
       <ScrollView style={styles.scrollView}>
         <View style={styles.content}>

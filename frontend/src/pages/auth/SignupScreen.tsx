@@ -30,10 +30,7 @@ export default function SignupScreen({ onNavigate }: SignupScreenProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [gender, setGender] = useState<string>('');
   const [address, setAddress] = useState('');
-  const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sendingOtp, setSendingOtp] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
 
   // Handle mobile number input - only allow numbers
   const handleMobileChange = (text: string) => {
@@ -45,35 +42,6 @@ export default function SignupScreen({ onNavigate }: SignupScreenProps) {
     }
   };
 
-  // Handle OTP input - only allow numbers
-  const handleOtpChange = (text: string) => {
-    // Remove all non-numeric characters
-    const numericText = text.replace(/[^0-9]/g, '');
-    // Limit to 4 digits
-    if (numericText.length <= 4) {
-      setOtp(numericText);
-    }
-  };
-
-  // Send OTP to mobile number
-  const sendOtp = async () => {
-    if (!mobile || mobile.length !== 10) {
-      Alert.alert('Error', 'Please enter a valid 10-digit mobile number');
-      return;
-    }
-
-    try {
-      setSendingOtp(true);
-      // TODO: Call OTP send API
-      // await authService.sendOtp(mobile.trim());
-      Alert.alert('Success', 'OTP sent to your mobile number');
-      setOtpSent(true);
-    } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to send OTP');
-    } finally {
-      setSendingOtp(false);
-    }
-  };
 
   const genderOptions = [
     { label: 'Male', value: 'male' },
@@ -105,12 +73,6 @@ export default function SignupScreen({ onNavigate }: SignupScreenProps) {
       return;
     }
 
-    // Validate OTP if provided
-    if (otp && !/^[0-9]{4}$/.test(otp.trim())) {
-      Alert.alert('Error', 'OTP must be exactly 4 digits');
-      return;
-    }
-
     try {
       setLoading(true);
       await authService.signup(
@@ -119,8 +81,7 @@ export default function SignupScreen({ onNavigate }: SignupScreenProps) {
         password,
         mobile.trim(),
         gender || undefined,
-        address.trim() || undefined,
-        otp.trim() || undefined
+        address.trim() || undefined
       );
       Alert.alert('Success', 'Account created. Please login.');
       onNavigate?.('Login/Signup');
@@ -137,6 +98,10 @@ export default function SignupScreen({ onNavigate }: SignupScreenProps) {
 
   return (
     <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Dairy Farm Management</Text>
+        <Text style={styles.headerSubtitle}>Signup</Text>
+      </View>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Signup</Text>
         
@@ -156,22 +121,14 @@ export default function SignupScreen({ onNavigate }: SignupScreenProps) {
           style={styles.input}
         />
         
-        <View style={styles.mobileContainer}>
-          <Input
-            placeholder="Mobile Number *"
-            keyboardType="phone-pad"
-            value={mobile}
-            onChangeText={handleMobileChange}
-            maxLength={10}
-            style={styles.mobileInput}
-          />
-          <Button
-            title={sendingOtp ? 'Sending...' : otpSent ? 'Resend OTP' : 'Send OTP'}
-            onPress={sendOtp}
-            disabled={sendingOtp || !mobile || mobile.length !== 10}
-            style={styles.otpButton}
-          />
-        </View>
+        <Input
+          placeholder="Mobile Number *"
+          keyboardType="phone-pad"
+          value={mobile}
+          onChangeText={handleMobileChange}
+          maxLength={10}
+          style={styles.input}
+        />
         
         <Input
           placeholder="Set Password *"
@@ -208,15 +165,6 @@ export default function SignupScreen({ onNavigate }: SignupScreenProps) {
           style={styles.addressInput}
         />
         
-        <Input
-          placeholder="OTP (Optional - 4 digits)"
-          keyboardType="number-pad"
-          value={otp}
-          onChangeText={handleOtpChange}
-          maxLength={4}
-          style={styles.input}
-        />
-        
         <Button 
           title={loading ? 'Creating...' : 'Create Account'} 
           onPress={onSignup} 
@@ -232,6 +180,23 @@ export default function SignupScreen({ onNavigate }: SignupScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  header: {
+    backgroundColor: '#4CAF50',
+    padding: 20,
+    paddingTop: 50,
+    paddingBottom: 20,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 5,
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    color: '#E8F5E9',
   },
   content: {
     padding: 20,
@@ -248,20 +213,6 @@ const styles = StyleSheet.create({
     minHeight: 80,
     textAlignVertical: 'top',
     marginBottom: 12,
-  },
-  mobileContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-    gap: 8,
-  },
-  mobileInput: {
-    flex: 1,
-    marginBottom: 0,
-  },
-  otpButton: {
-    minWidth: 100,
-    paddingHorizontal: 12,
   },
 });
 

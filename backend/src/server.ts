@@ -24,7 +24,7 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 const envPort = process.env.PORT ? Number(process.env.PORT) : undefined;
-const port = typeof envPort === "number" && !Number.isNaN(envPort) ? envPort : 8080;
+const port = typeof envPort === "number" && !Number.isNaN(envPort) ? envPort : 4000;
 
 async function bootstrap() {
   try {
